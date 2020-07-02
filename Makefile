@@ -6,6 +6,11 @@
 ifeq ($(strip $(DEVKITPPC)),)
 $(error "Please set DEVKITPPC in your environment. export DEVKITPPC=<path to>devkitPPC")
 endif
+
+ifeq ($(strip $(PAYLOAD_URL)),)
+$(error "Please set PAYLOAD_URL to the url of the payload to be loaded")
+endif
+
 export PATH			:=	$(DEVKITPPC)/bin:$(PORTLIBS)/bin:$(PATH)
 export PORTLIBS		:=	$(DEVKITPRO)/portlibs/ppc
 
@@ -36,9 +41,11 @@ INCLUDES	:=
 # options for code generation
 #---------------------------------------------------------------------------------
 CFLAGS	:=  -std=gnu11 -mrvl -mcpu=750 -meabi -mhard-float -ffast-math -fno-builtin \
-		    -O0 -Wall -Wextra -Wno-unused-parameter -Wno-strict-aliasing $(INCLUDE)
+		    -O0 -Wall -Wextra -Wno-unused-parameter -Wno-strict-aliasing $(INCLUDE) \
+		    -DPAYLOAD_URL=\"$(PAYLOAD_URL)\"
 CXXFLAGS := -std=gnu++11 -mrvl -mcpu=750 -meabi -mhard-float -ffast-math \
-		    -O0 -Wall -Wextra -Wno-unused-parameter -Wno-strict-aliasing $(INCLUDE)
+		    -O0 -Wall -Wextra -Wno-unused-parameter -Wno-strict-aliasing $(INCLUDE) \
+		    -DPAYLOAD_URL=\"$(PAYLOAD_URL)\"
 ASFLAGS	:= -mregnames
 LDFLAGS	:= -nostartfiles -Wl,--gc-sections
 

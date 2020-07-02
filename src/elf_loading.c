@@ -1,86 +1,82 @@
 #include "elf_abi.h"
-#include "fs_defs.h"
+#include "curl_defs.h"
 #include "common.h"
 #include "utils.h"
 #include "structs.h"
 #include "elf_loading.h"
 
-static int32_t LoadFileToMem(private_data_t *private_data, const char *filepath, uint8_t **fileOut, uint32_t * sizeOut) {
-    int32_t iFd = -1;
-    void *pClient = private_data->MEMAllocFromDefaultHeapEx(FS_CLIENT_SIZE, 4);
-    if(!pClient) {
+static int curl_write_data(void *buffer, int size, int nmemb, void *userp)
+{
+    curl_data_t *curl_data = userp;
+    private_data_t *private_data = curl_data->private_data;
+
+    int insize = size * nmemb;
+
+    // check if buffer reallocation is needed
+    if ((curl_data->downloadedSize + insize) > curl_data->curlBufferSize)
+    {
+        // allocate 4k chunks to limit the number of reallocations
+        void *oldPtr = curl_data->curlBufferPtr;
+        curl_data->curlBufferSize += 0x1000;
+        curl_data->curlBufferPtr = private_data->MEMAllocFromDefaultHeapEx(curl_data->curlBufferSize, 0x40);
+        private_data->memcpy(curl_data->curlBufferPtr, oldPtr, curl_data->downloadedSize);
+        private_data->MEMFreeToDefaultHeap(oldPtr);
+    }
+
+    // append the downloaded data to the file buffer
+    private_data->memcpy(curl_data->curlBufferPtr + curl_data->downloadedSize, buffer, insize);
+    curl_data->downloadedSize += insize;
+
+    return insize;
+}
+
+static int32_t DownloadFileToMem(private_data_t *private_data, const char *fileurl, uint8_t **fileOut, uint32_t * sizeOut) {
+    curl_data_t curl_data;
+
+    // allocate an initial 4k buffer
+    curl_data.private_data = private_data;
+    curl_data.curlBufferSize = 0x1000;
+    curl_data.curlBufferPtr = private_data->MEMAllocFromDefaultHeapEx(curl_data.curlBufferSize, 0x40);
+    curl_data.downloadedSize = 0;
+
+    if (!curl_data.curlBufferPtr) {
         return 0;
     }
 
-    void *pCmd = private_data->MEMAllocFromDefaultHeapEx(FS_CMD_BLOCK_SIZE, 4);
-    if(!pCmd) {
-        private_data->MEMFreeToDefaultHeap(pClient);
-        return 0;
+    // initialize curl library
+    void *curl = private_data->curl_easy_init();
+    if(!curl) {
+        OSFatal("curl_easy_init failed.");
     }
 
-    int32_t success = 0;
-    private_data->FSInit();
-    private_data->FSInitCmdBlock(pCmd);
-    private_data->FSAddClientEx(pClient, 0, -1);
+    // prepare for download
+    private_data->curl_easy_setopt(curl, CURLOPT_URL, (char*)fileurl);
+    private_data->curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_data);
+    private_data->curl_easy_setopt(curl, CURLOPT_WRITEDATA, &curl_data);
 
-    do {
-        char tempPath[FS_MOUNT_SOURCE_SIZE];
-        char mountPath[FS_MAX_MOUNTPATH_SIZE];
+    // download the file
+    int ret = private_data->curl_easy_perform(curl);
+    if(ret) {
+        OSFatal("curl_easy_perform failed.");
+    }
 
-        int32_t status = private_data->FSGetMountSource(pClient, pCmd, 0, tempPath, -1);
-        if (status != 0) {
-            OSFatal("FSGetMountSource failed. Please insert a FAT32 formatted sd card.");
-        }
-        status = private_data->FSMount(pClient, pCmd, tempPath, mountPath, FS_MAX_MOUNTPATH_SIZE, -1);
-        if(status != 0) {
-            OSFatal("SD mount failed. Please insert a FAT32 formatted sd card.");
-        }
+    // check response code
+    int resp = 404;
+    private_data->curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp);
+    if(resp != 200) {
+        char buf[0x255];
+        __os_snprintf(buf,0x254,"File download failed. (error %d)", resp);
+        OSFatal(buf);
+    }
 
-        status = private_data->FSOpenFile(pClient, pCmd, filepath, "r", &iFd, -1);
-        if(status != 0) {
-            char buf[0x255];
-            __os_snprintf(buf,0x254,"FSOpenFile failed. File missing %s",filepath);            
-            OSFatal(buf);
-        }
+    // cleanup
+    private_data->curl_easy_cleanup(curl);
 
-        FSStat stat;
-        stat.size = 0;
+    // done
+    *fileOut = (uint8_t*)curl_data.curlBufferPtr;
+    *sizeOut = curl_data.downloadedSize;
 
-        void *pBuffer = NULL;
-
-        private_data->FSGetStatFile(pClient, pCmd, iFd, &stat, -1);
-
-        if(stat.size > 0)
-            pBuffer = private_data->MEMAllocFromDefaultHeapEx((stat.size + 0x3F) & ~0x3F, 0x40);
-        else
-            OSFatal("ELF file empty.");
-
-        uint32_t done = 0;
-
-        while(done < stat.size) {
-            int32_t readBytes = private_data->FSReadFile(pClient, pCmd, pBuffer + done, 1, stat.size - done, iFd, 0, -1);
-            if(readBytes <= 0) {
-                break;
-            }
-            done += readBytes;
-        }
-
-        if(done != stat.size) {
-            private_data->MEMFreeToDefaultHeap(pBuffer);
-        } else {
-            *fileOut = (uint8_t*)pBuffer;
-            *sizeOut = stat.size;
-            success = 1;
-        }
-
-        private_data->FSCloseFile(pClient, pCmd, iFd, -1);
-        private_data->FSUnmount(pClient, pCmd, mountPath, -1);
-    } while(0);
-
-    private_data->FSDelClient(pClient);
-    private_data->MEMFreeToDefaultHeap(pClient);
-    private_data->MEMFreeToDefaultHeap(pCmd);
-    return success;
+    return 1;
 }
 
 static uint32_t load_elf_image_to_mem (private_data_t *private_data, uint8_t *elfstart) {
@@ -141,7 +137,7 @@ static uint32_t load_elf_image_to_mem (private_data_t *private_data, uint8_t *el
     return ehdr->e_entry;
 }
 
-uint32_t LoadAndCopyFile(const char *filepath) {
+uint32_t DownloadAndCopyFile(const char *fileurl) {
     private_data_t private_data;
 
     loadFunctionPointers(&private_data);
@@ -149,14 +145,14 @@ uint32_t LoadAndCopyFile(const char *filepath) {
     unsigned char *pElfBuffer = NULL;
     unsigned int uiElfSize = 0;
 
-    LoadFileToMem(&private_data, filepath, &pElfBuffer, &uiElfSize);
+    DownloadFileToMem(&private_data, fileurl, &pElfBuffer, &uiElfSize);
 
     if(!pElfBuffer) {
-        OSFatal("Failed to load homebrew_launcher.elf");
+        OSFatal("Failed to download payload.elf");
     }
     unsigned int newEntry = load_elf_image_to_mem(&private_data, pElfBuffer);
     if(newEntry == 0) {
-        OSFatal("failed to load .elf");
+        OSFatal("Failed to load elf");
     }
 
     private_data.MEMFreeToDefaultHeap(pElfBuffer);

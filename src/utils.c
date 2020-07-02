@@ -15,26 +15,15 @@ void loadFunctionPointers(private_data_t * private_data) {
     OS_FIND_EXPORT(coreinit_handle, "memcpy", private_data->memcpy);
     OS_FIND_EXPORT(coreinit_handle, "memset", private_data->memset);
     OS_FIND_EXPORT(coreinit_handle, "DCFlushRange", private_data->DCFlushRange);
-    OS_FIND_EXPORT(coreinit_handle, "DCInvalidateRange", private_data->DCInvalidateRange);
     OS_FIND_EXPORT(coreinit_handle, "ICInvalidateRange", private_data->ICInvalidateRange);
-    OS_FIND_EXPORT(coreinit_handle, "OSEffectiveToPhysical", private_data->OSEffectiveToPhysical);
-    OS_FIND_EXPORT(coreinit_handle, "exit", private_data->exit);
 
-    OS_FIND_EXPORT(coreinit_handle, "FSInit", private_data->FSInit);
-    OS_FIND_EXPORT(coreinit_handle, "FSAddClientEx", private_data->FSAddClientEx);
-    OS_FIND_EXPORT(coreinit_handle, "FSDelClient", private_data->FSDelClient);
-    OS_FIND_EXPORT(coreinit_handle, "FSInitCmdBlock", private_data->FSInitCmdBlock);
-    OS_FIND_EXPORT(coreinit_handle, "FSGetMountSource", private_data->FSGetMountSource);
-    OS_FIND_EXPORT(coreinit_handle, "FSMount", private_data->FSMount);
-    OS_FIND_EXPORT(coreinit_handle, "FSUnmount", private_data->FSUnmount);
-    OS_FIND_EXPORT(coreinit_handle, "FSOpenFile", private_data->FSOpenFile);
-    OS_FIND_EXPORT(coreinit_handle, "FSGetStatFile", private_data->FSGetStatFile);
-    OS_FIND_EXPORT(coreinit_handle, "FSReadFile", private_data->FSReadFile);
-    OS_FIND_EXPORT(coreinit_handle, "FSCloseFile", private_data->FSCloseFile);
-
-    unsigned int sysapp_handle;
-    OSDynLoad_Acquire("sysapp.rpl", &sysapp_handle);
-    OS_FIND_EXPORT(sysapp_handle, "SYSRelaunchTitle", private_data->SYSRelaunchTitle);
+    unsigned int nlibcurl_handle;
+	OSDynLoad_Acquire("nlibcurl", &nlibcurl_handle);
+	OS_FIND_EXPORT(nlibcurl_handle, "curl_easy_init", private_data->curl_easy_init);
+	OS_FIND_EXPORT(nlibcurl_handle, "curl_easy_setopt", private_data->curl_easy_setopt);
+	OS_FIND_EXPORT(nlibcurl_handle, "curl_easy_getinfo", private_data->curl_easy_getinfo);
+	OS_FIND_EXPORT(nlibcurl_handle, "curl_easy_cleanup", private_data->curl_easy_cleanup);
+	OS_FIND_EXPORT(nlibcurl_handle, "curl_easy_perform", private_data->curl_easy_perform);
 }
 
 /* Read a 32-bit word with kernel permissions */
@@ -54,9 +43,9 @@ uint32_t __attribute__ ((noinline)) kern_read(const void *addr) {
         "nop\n"
         "mr 1,%0\n"
         "mr %0,3\n"
-        :	"=r"(result)
-        :	"b"(addr)
-        :	"memory", "ctr", "lr", "0", "3", "4", "5", "6", "7", "8", "9", "10",
+        :    "=r"(result)
+        :    "b"(addr)
+        :    "memory", "ctr", "lr", "0", "3", "4", "5", "6", "7", "8", "9", "10",
         "11", "12"
     );
 
@@ -79,8 +68,8 @@ void __attribute__ ((noinline)) kern_write(void *addr, uint32_t value) {
         "nop\n"
         "mr 1,%1\n"
         :
-        :	"r"(addr), "r"(value)
-        :	"memory", "ctr", "lr", "0", "3", "4", "5", "6", "7", "8", "9", "10",
+        :    "r"(addr), "r"(value)
+        :    "memory", "ctr", "lr", "0", "3", "4", "5", "6", "7", "8", "9", "10",
         "11", "12"
     );
 }

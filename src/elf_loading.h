@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-uint32_t LoadAndCopyFile(const char *filepath);
+uint32_t DownloadAndCopyFile(const char *filepath);
 
 #ifdef __cplusplus
 }
